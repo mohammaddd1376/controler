@@ -1,0 +1,24 @@
+[Unit]
+Description=WireGuard NestJS Controller
+After=network.target
+# اگر خیلی سریع پشت‌سرهم کرش کرد هم دوباره تلاش کن (بدون محدودیت تعداد دفعات)
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/controler
+ExecStart=/usr/bin/node dist/main.js
+Environment=NODE_ENV=production
+Environment=PORT=3000
+
+# هر بار که پروسه به هر دلیلی (کرش، exit، OOM) متوقف شد، دوباره اجرا شو
+# چه کد خروجی 0 باشد چه غیر 0 و چه با سیگنال kill شده باشد
+Restart=always
+RestartSec=3
+
+# جلوگیری از OOM-kill شدن سرویس با اولویت پایین‌تر نسبت به بقیه‌ی سیستم (اختیاری)
+OOMScoreAdjust=-500
+
+[Install]
+WantedBy=multi-user.target

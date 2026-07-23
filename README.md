@@ -56,23 +56,62 @@ mkdir -p /home/jwpn && cp wireguard-install.sh /home/jwpn/wireguard-install.sh
 npm run start:prod
 ```
 
-برای اجرای دائمی می‌توانید از pm2 یا یک systemd service مشابه نمونه‌ی زیر استفاده کنید:
+### اجرای همیشه پایدار (طوری که در هیچ حالتی متوقف نشود)
 
+این پروژه در سه لایه در برابر توقف محافظت شده:
+
+1. **داخل خود کد (`src/main.ts`)**: خطاهای `uncaughtException` و `unhandledRejection` گرفته و فقط لاگ می‌شوند، به‌جای اینکه کل پروسه‌ی Node کرش کند. اگر بالا آمدن اولیه‌ی سرور هم شکست بخورد (مثلا پورت موقتاً اشغال باشد)، خودش هر ۳ ثانیه دوباره تلاش می‌کند.
+2. **pm2** (توصیه‌شده): با `ecosystem.config.js` که در ریشه‌ی پروژه اضافه شده، هر بار که پروسه کرش کند یا حافظه بیش از حد مصرف کند، به‌صورت خودکار ری‌استارت می‌شود؛ حتی هر روز ساعت ۴ صبح برای جلوگیری از نشتی حافظه‌ی بلندمدت یک ری‌استارت پیشگیرانه انجام می‌دهد.
+3. **systemd** (لایه‌ی بیرونی‌ترین): چه از pm2 استفاده کنید چه مستقیم از node، systemd هم پروسه را زیر نظر دارد تا حتی اگر خودِ pm2 یا سرور ری‌استارت شود، سرویس بعد از boot دوباره بالا بیاید.
+
+#### روش ۱: با pm2 (پیشنهادی)
+
+```bash
+npm i
+npm run build
+mkdir -p /var/log/wg-controller
+chmod +x wireguard-install.sh
+mkdir -p /home/jwpn && cp wireguard-install.sh /home/jwpn/wireguard-install.sh
+
+npm i -g pm2
+pm2 start ecosystem.config.js
+pm2 save                # وضعیت فعلی pm2 را ذخیره کن
+pm2 startup systemd      # دستوری که چاپ می‌شود را اجرا کن تا pm2 خودش بعد از ریبوت سرور هم بالا بیاید
 ```
-[Unit]
-Description=WireGuard NestJS Controller
-After=network.target
 
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/home/controler
-ExecStart=/usr/bin/node dist/main.js
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
+دستورات مفید:
+```bash
+pm2 status               # وضعیت سرویس
+pm2 logs wg-controller   # لاگ زنده
+pm2 restart wg-controller
 ```
+
+#### روش ۲: مستقیم با systemd (بدون pm2)
+
+فایل نمونه در `deploy/wg-controller.service` قرار دارد:
+
+```bash
+npm i
+npm run build
+chmod +x wireguard-install.sh
+mkdir -p /home/jwpn && cp wireguard-install.sh /home/jwpn/wireguard-install.sh
+
+cp deploy/wg-controller.service /etc/systemd/system/wg-controller.service
+# اگر پروژه در مسیر دیگری غیر از /home/controler است، WorkingDirectory را در فایل سرویس اصلاح کنید
+systemctl daemon-reload
+systemctl enable --now wg-controller.service
+```
+
+با `Restart=always` و `StartLimitIntervalSec=0`، systemd صرف‌نظر از تعداد دفعات و دلیل خروج پروسه (کرش، OOM، خطای غیرمنتظره)، همیشه دوباره آن را اجرا می‌کند.
+
+دستورات مفید:
+```bash
+systemctl status wg-controller
+journalctl -u wg-controller -f   # لاگ زنده
+systemctl restart wg-controller
+```
+
+> **نکته:** استفاده‌ی هم‌زمان از هر دو روش لازم نیست؛ یکی از این دو را انتخاب کنید. اگر با pm2 اجرا می‌کنید و می‌خواهید pm2 هم بعد از ریبوت سرور بالا بیاید، حتماً مرحله‌ی `pm2 startup` و `pm2 save` را انجام دهید؛ در غیر این صورت بعد از ریبوت سرور، سرویس بالا نخواهد آمد.
 
 ## Project setup
 
