@@ -33,9 +33,9 @@ export class MainController {
     return this.mainService.removeVpn(publicKey);
   }
 
-  // لیست تمام کاربران
+  // لیست تمام کاربران (فقط نام کاربری‌ها، بدون متن خام منو/بنر ترمینال)
   @Get('list')
-  async list(): Promise<string> {
+  async list(): Promise<{ index: number; username: string }[]> {
     return this.mainService.listUsers();
   }
 

@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import sleep = require('sleep-promise');
 
 const wg0ConfigPath = '/etc/wireguard/wg0.conf'; // مسیر فایل کانفیگ WireGuard
+const wgParamsPath = '/etc/wireguard/params'; // فایل تنظیمات اسکریپت wireguard-install (شامل SERVER_WG_IPV4 واقعی)
 const installScriptPath = '/home/jwpn/wireguard-install.sh'; // مسیر اسکریپت نصب/مدیریت وایرگارد روی سرور
 
 @Injectable()
@@ -86,8 +87,32 @@ export class MainService {
     });
   }
 
-  // پیدا کردن اولین آی‌پی خصوصی آزاد در بازه‌ی 10.66.66.3 تا 10.66.66.249
+  // خواندن SERVER_WG_IPV4 از /etc/wireguard/params و استخراج سه اکتت اول (BASE_IP)
+  // دقیقا مطابق منطق خود اسکریپت wireguard-install.sh:
+  //   BASE_IP=$(echo "$SERVER_WG_IPV4" | awk -F '.' '{ print $1"."$2"."$3 }')
+  private async getSubnetPrefix(): Promise<{ prefix: string; serverIp: string }> {
+    const content = await fs.promises.readFile(wgParamsPath, 'utf-8');
+    const match = /^SERVER_WG_IPV4\s*=\s*([\d.]+)\s*$/m.exec(content);
+
+    if (!match) {
+      throw new InternalServerErrorException(
+        `SERVER_WG_IPV4 در فایل ${wgParamsPath} پیدا نشد`,
+      );
+    }
+
+    const serverIp = match[1];
+    const octets = serverIp.split('.');
+    if (octets.length !== 4) {
+      throw new InternalServerErrorException(`فرمت SERVER_WG_IPV4 نامعتبر است: ${serverIp}`);
+    }
+
+    return { prefix: `${octets[0]}.${octets[1]}.${octets[2]}.`, serverIp };
+  }
+
+  // پیدا کردن اولین آی‌پی خصوصی آزاد در سابنت واقعی سرور (خوانده‌شده از /etc/wireguard/params)
   private async findFreeIp(): Promise<number> {
+    const { prefix, serverIp } = await this.getSubnetPrefix();
+
     const data = await fs.promises.readFile(wg0ConfigPath, 'utf8');
     const allowedIPs: string[] = [];
     const lines = data.split('\n');
@@ -105,15 +130,19 @@ export class MainService {
       }
     }
 
-    for (let i = 3; i < 250; i++) {
-      const ipToCheck = `10.66.66.${i}/32`;
+    for (let i = 2; i < 255; i++) {
+      const candidateIp = `${prefix}${i}`;
+      if (candidateIp === serverIp) {
+        continue; // آی‌پی خود سرور (معمولا x.x.x.1) رد شود
+      }
+      const ipToCheck = `${candidateIp}/32`;
       if (!allowedIPs.includes(ipToCheck)) {
         this.logger.log(`${ipToCheck} آزاد است`);
-        return i;
+        return i; // فقط آخرین اکتت را برمی‌گردانیم؛ چون اسکریپت هم فقط همین را از ورودی می‌خواهد
       }
     }
 
-    throw new InternalServerErrorException('هیچ آی‌پی آزادی در بازه پیدا نشد');
+    throw new InternalServerErrorException('هیچ آی‌پی آزادی در این سابنت پیدا نشد');
   }
 
   // بررسی اینکه آیا کانفیگ برای این کاربر از قبل ساخته شده یا نه
@@ -185,8 +214,8 @@ export class MainService {
     });
   }
 
-  // لیست کاربران وایرگارد (بر اساس خروجی اسکریپت نصب)
-  async listUsers(): Promise<string> {
+  // لیست کاربران وایرگارد (بر اساس خروجی اسکریپت نصب) - فقط لیست تمیز کاربران، بدون بنر/منوی خام ترمینال
+  async listUsers(): Promise<{ index: number; username: string }[]> {
     return new Promise((resolve) => {
       const result = shell.exec(installScriptPath, { async: true }) as any;
       let output = '';
@@ -199,8 +228,39 @@ export class MainService {
       result.stdin.end();
 
       setTimeout(() => {
-        resolve(output);
+        resolve(this.parseUserList(output));
       }, 2000);
     });
+  }
+
+  // از کل خروجی خام ترمینال اسکریپت (که شامل بنر خوش‌آمدگویی و متن منو هم هست)
+  // فقط خطوطی که دقیقا به شکل «عدد) نام‌کاربری» هستند را استخراج می‌کند.
+  // خطوط منو مثل «1) Add a new user» چون چند کلمه‌ای هستند با این الگو مچ نمی‌شوند
+  // و به همین ترتیب از لیست جدا می‌مانند.
+  private parseUserList(rawOutput: string): { index: number; username: string }[] {
+    // بعد از آخرین «5) Exit» (پایان بنر منوی اصلی) شروع به پارس کن،
+    // تا خود گزینه‌ی منو با username تک‌کلمه‌ای «Exit» اشتباه گرفته نشود
+    const menuEndMarker = /\d+\)\s*Exit\s*$/im;
+    const markerMatch = menuEndMarker.exec(rawOutput);
+    const listSection = markerMatch
+      ? rawOutput.slice(markerMatch.index + markerMatch[0].length)
+      : rawOutput;
+
+    const lines = listSection.split('\n');
+    const users: { index: number; username: string }[] = [];
+    const lineRegex = /^(\d+)\)\s+(\S+)\s*$/;
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      const match = lineRegex.exec(line);
+      if (match) {
+        users.push({
+          index: parseInt(match[1], 10),
+          username: match[2],
+        });
+      }
+    }
+
+    return users;
   }
 }
