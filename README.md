@@ -26,6 +26,54 @@
 
 [Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
 
+## مستندات فارسی (WireGuard Controller)
+
+این پروژه، سرویس مدیریت کلاینت‌های WireGuard است که با فریم‌ورک **NestJS** نوشته شده. منطق ساخت/حذف/لیست کاربران از پروژه‌ی `jwpn` استخراج و در قالب ماژول `main` بازنویسی شده و کنار قابلیت فعال/غیرفعال‌سازی که از قبل وجود داشت قرار گرفته است.
+
+### پیش‌نیازها روی سرور
+- اسکریپت `wireguard-install.sh` (کنار پروژه قرار دارد) باید در سرور در مسیر `/home/jwpn/wireguard-install.sh` باشد (یا مسیر آن را در `src/main/main.service.ts` در متغیر `installScriptPath` تغییر دهید).
+- فایل `/etc/wireguard/wg0.conf` باید توسط همان اسکریپت ساخته شده باشد.
+- برنامه باید با دسترسی `root` یا کاربری با مجوز اجرای `systemctl restart wg-quick@wg0` اجرا شود.
+
+### روت‌های موجود (پیشوند `/vpn`)
+
+| متد | مسیر | پارامتر | توضیح |
+|---|---|---|---|
+| GET | `/vpn/create` | `publicKey` | ساخت کانفیگ جدید برای کاربر (اگر از قبل وجود داشته باشد همان را برمی‌گرداند) |
+| GET | `/vpn/remove` | `publicKey` | حذف کانفیگ کاربر |
+| GET | `/vpn/list` | - | لیست کاربران |
+| GET | `/vpn/check` | `publicKey` | بررسی وجود کانفیگ برای کاربر (`{ exists: boolean }`) |
+| GET | `/vpn/activate` | `publicKey` | فعال کردن (uncomment) بلاک کاربر در `wg0.conf` |
+| GET | `/vpn/deactivate` | `publicKey` | غیرفعال کردن (comment) بلاک کاربر در `wg0.conf` |
+
+### اجرا روی سرور
+
+```bash
+npm i
+npm run build
+chmod +x wireguard-install.sh
+mkdir -p /home/jwpn && cp wireguard-install.sh /home/jwpn/wireguard-install.sh
+npm run start:prod
+```
+
+برای اجرای دائمی می‌توانید از pm2 یا یک systemd service مشابه نمونه‌ی زیر استفاده کنید:
+
+```
+[Unit]
+Description=WireGuard NestJS Controller
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/controler
+ExecStart=/usr/bin/node dist/main.js
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
 ## Project setup
 
 ```bash
