@@ -106,7 +106,7 @@ export class MainService {
     }
 
     for (let i = 3; i < 250; i++) {
-      const ipToCheck = `10.66.66.${i}/32`;
+      const ipToCheck = `45.56.3.${i}/32`;
       if (!allowedIPs.includes(ipToCheck)) {
         this.logger.log(`${ipToCheck} آزاد است`);
         return i;
