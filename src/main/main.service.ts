@@ -217,7 +217,7 @@ export class MainService {
       `PublicKey = ${serverPublicKey}`,
       'AllowedIPs = 0.0.0.0/0',
       `Endpoint = ${endpoint}`,
-      'PersistentKeepalive = 10',
+      'PersistentKeepalive = 21',
       '',
     ].join('\n');
   }
