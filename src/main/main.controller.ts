@@ -1,4 +1,4 @@
-import { Controller, Get, Query, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Query, BadRequestException, Header } from '@nestjs/common';
 import { MainService } from './main.service';
 
 @Controller('vpn')
@@ -7,6 +7,7 @@ export class MainController {
 
   // فعال کردن کاربر
   @Get('activate')
+  @Header('Content-Type', 'text/plain; charset=utf-8')
   async activate(@Query('publicKey') publicKey: string): Promise<string> {
     this.assertPublicKey(publicKey);
     return this.mainService.activateUser(publicKey);
@@ -14,13 +15,18 @@ export class MainController {
 
   // غیرفعال کردن کاربر
   @Get('deactivate')
+  @Header('Content-Type', 'text/plain; charset=utf-8')
   async deactivate(@Query('publicKey') publicKey: string): Promise<string> {
     this.assertPublicKey(publicKey);
     return this.mainService.deactivateUser(publicKey);
   }
 
   // ساخت کانفیگ جدید برای کاربر (اگر از قبل وجود داشته باشد، همان کانفیگ برگردانده می‌شود)
+  // Content-Type را صریحا text/plain می‌کنیم؛ در غیر این‌صورت Nest به‌صورت پیش‌فرض
+  // text/html می‌گذارد و مرورگر خط‌های جدید (\n) داخل کانفیگ را نادیده می‌گیرد
+  // و همه چیز به‌صورت یک خط چسبیده نمایش داده می‌شود (خودِ محتوا مشکلی نداشت، فقط نمایش آن بود).
   @Get('create')
+  @Header('Content-Type', 'text/plain; charset=utf-8')
   async create(@Query('publicKey') publicKey: string): Promise<string> {
     this.assertPublicKey(publicKey);
     return this.mainService.createVpn(publicKey);
@@ -28,6 +34,7 @@ export class MainController {
 
   // حذف کانفیگ یک کاربر
   @Get('remove')
+  @Header('Content-Type', 'text/plain; charset=utf-8')
   async remove(@Query('publicKey') publicKey: string): Promise<string> {
     this.assertPublicKey(publicKey);
     return this.mainService.removeVpn(publicKey);
