@@ -217,7 +217,7 @@ export class MainService {
       `PublicKey = ${serverPublicKey}`,
       'AllowedIPs = 0.0.0.0/0',
       `Endpoint = ${endpoint}`,
-      'PersistentKeepalive = 21',
+      'PersistentKeepalive = 10',
       '',
     ].join('\n');
   }
@@ -226,36 +226,63 @@ export class MainService {
   async removeVpn(publicKey: string): Promise<string> {
     return new Promise((resolve, reject) => {
       const result = shell.exec(installScriptPath, { async: true }) as any;
-      result.stdin.write('3\n'); // انتخاب گزینه‌ی «حذف کاربر»
-
       let matched = false;
+      let settled = false;
+      let notFoundTimer: NodeJS.Timeout;
+
+      const finish = (err?: Error, value?: string) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(notFoundTimer);
+        if (err) {
+          reject(err);
+        } else {
+          resolve(value as string);
+        }
+      };
+
+      result.stdin.write('3\n'); // انتخاب گزینه‌ی «حذف کاربر» (استدین را اینجا نمی‌بندیم چون ورودی بعدی هم لازم است)
+
+      const escapedName = publicKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // (?=\s|$) تا مثلا "wq4" به‌اشتباه داخل "wq4kMPNYv" مچ نشود
+      const regex = new RegExp(`(\\d+)\\)\\s*${escapedName}(?=\\s|$)`);
 
       result.stdout.on('data', (data: Buffer) => {
+        if (matched) return;
         const text = data.toString();
-        const regex = new RegExp(`(\\d+)\\)\\s*${publicKey}`);
         const matches = regex.exec(text);
 
         if (matches && matches[1]) {
           matched = true;
           const numberBeforeName = parseInt(matches[1], 10);
-          result.stdin.write(numberBeforeName + '\n');
-          result.stdin.write('y\n'); // تایید حذف در صورت نیاز اسکریپت
+          result.stdin.write(numberBeforeName + '\n'); // انتخاب همان کاربر از لیست (اسکریپت برای حذف تک‌کاربر تاییدیه‌ی جداگانه‌ای نمی‌خواهد)
+          result.stdin.end(); // فقط بعد از فرستادن همه‌ی ورودی‌ها استدین را می‌بندیم
         }
       });
 
       result.on('exit', (code: number) => {
         if (!matched) {
-          reject(new InternalServerErrorException('کاربر مورد نظر پیدا نشد'));
+          finish(new InternalServerErrorException('کاربر مورد نظر پیدا نشد'));
           return;
         }
         if (code === 0) {
-          resolve('کاربر با موفقیت حذف شد');
+          finish(undefined, 'کاربر با موفقیت حذف شد');
         } else {
-          reject(new InternalServerErrorException('حذف کاربر ناموفق بود'));
+          finish(new InternalServerErrorException('حذف کاربر ناموفق بود'));
         }
       });
 
-      result.stdin.end();
+      // اگر بعد از چند ثانیه هنوز کاربر در خروجی لیست پیدا نشد، استدین را ببند
+      // تا اسکریپت به‌جای هنگ کردن ابدی (منتظر ورودی‌ای که هرگز نمی‌آید)، خارج شود
+      notFoundTimer = setTimeout(() => {
+        if (!matched) {
+          try {
+            result.stdin.end();
+          } catch {
+            // نادیده گرفتن خطای بستن استریم در صورت بسته بودن قبلی
+          }
+        }
+      }, 5000);
     });
   }
 
