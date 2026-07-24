@@ -174,7 +174,52 @@ export class MainService {
       throw new InternalServerErrorException('ساخت کانفیگ ناموفق بود، فایل ایجاد نشد');
     }
 
-    return fs.promises.readFile(configPath, 'utf-8');
+    const rawConfig = await fs.promises.readFile(configPath, 'utf-8');
+    const formattedConfig = this.formatClientConfig(rawConfig);
+
+    // فایل روی دیسک هم با همین قالب بازنویسی می‌شود تا دفعات بعدی
+    // (وقتی کانفیگ از قبل وجود دارد) هم همین فرمت برگردانده شود
+    await fs.promises.writeFile(configPath, formattedConfig, 'utf-8');
+
+    return formattedConfig;
+  }
+
+  // کانفیگ خام تولیدشده توسط wireguard-install.sh را می‌گیرد و به قالب دلخواه تبدیل می‌کند:
+  // بدون PresharedKey، بدون IPv6 در AllowedIPs، یک DNS، به‌همراه MTU و PersistentKeepalive.
+  // فقط PrivateKey / Address / PublicKey سرور / Endpoint واقعی از فایل خام استخراج و در قالب جدید قرار می‌گیرند.
+  private formatClientConfig(rawConfig: string): string {
+    const privateKeyMatch = /PrivateKey\s*=\s*(\S+)/.exec(rawConfig);
+    const addressMatch = /^Address\s*=\s*(\S+)/m.exec(rawConfig);
+    const peerSectionMatch = /\[Peer\]([\s\S]*)/.exec(rawConfig);
+    const peerSection = peerSectionMatch ? peerSectionMatch[1] : '';
+    const serverPublicKeyMatch = /PublicKey\s*=\s*(\S+)/.exec(peerSection);
+    const endpointMatch = /Endpoint\s*=\s*(\S+)/.exec(peerSection || rawConfig);
+
+    if (!privateKeyMatch || !addressMatch || !serverPublicKeyMatch || !endpointMatch) {
+      throw new InternalServerErrorException(
+        'فرمت کانفیگ خروجی wireguard-install.sh غیرمنتظره بود و قابل تبدیل به قالب دلخواه نیست',
+      );
+    }
+
+    const privateKey = privateKeyMatch[1];
+    const address = addressMatch[1];
+    const serverPublicKey = serverPublicKeyMatch[1];
+    const endpoint = endpointMatch[1];
+
+    return [
+      '[Interface]',
+      `PrivateKey = ${privateKey}`,
+      `Address = ${address}`,
+      'DNS = 1.1.1.1',
+      'MTU = 1280',
+      '',
+      '[Peer]',
+      `PublicKey = ${serverPublicKey}`,
+      'AllowedIPs = 0.0.0.0/0',
+      `Endpoint = ${endpoint}`,
+      'PersistentKeepalive = 10',
+      '',
+    ].join('\n');
   }
 
   // حذف کانفیگ یک کاربر
